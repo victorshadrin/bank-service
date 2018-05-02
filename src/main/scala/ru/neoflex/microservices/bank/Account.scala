@@ -1,15 +1,19 @@
 package ru.neoflex.microservices.bank
 
+import akka.actor.Props
 import akka.persistence.PersistentActor
 
 object Account {
-  case class OpenAccountCommand(accountName: String)
+
+  def props: Props = Props[Account]
 
   case class OpenAccountEvent(accountName: String)
+
 }
 
 class Account extends PersistentActor {
   import Account._
+  import AccountProtocol._
 
 
   override def receiveRecover: Receive = {
