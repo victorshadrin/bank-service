@@ -1,18 +1,19 @@
 package ru.neoflex.microservices.bank
 
-import akka.actor.Props
+import akka.actor.{ActorLogging, Props}
 import akka.persistence.PersistentActor
+import akka.pattern.ask
 
-object Account {
+object AccountAggregator {
 
-  def props: Props = Props[Account]
+  def props: Props = Props[AccountAggregator]
 
   case class OpenAccountEvent(accountName: String)
 
 }
 
-class Account extends PersistentActor {
-  import Account._
+class AccountAggregator extends PersistentActor with ActorLogging {
+  import AccountAggregator._
   import AccountProtocol._
 
 
@@ -23,8 +24,10 @@ class Account extends PersistentActor {
 
   override def receiveCommand: Receive = {
     case cmd: OpenAccountCommand =>
+      log.info("Processing OpenAccountCommand")
       persist(OpenAccountEvent(cmd.accountName)) { event =>
-        sender ! event
+        log.info("After persist")
+        sender ! "Command sent"
       }
 
   }

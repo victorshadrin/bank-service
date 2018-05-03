@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ScalaCompilerConfiguration">
-    <profile name="sbt 1" modules="bank-service" />
+    <profile name="sbt 1" modules="microservices-bank-service,bank-service" />
   </component>
 </project>

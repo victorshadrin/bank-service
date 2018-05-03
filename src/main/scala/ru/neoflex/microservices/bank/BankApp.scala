@@ -18,9 +18,6 @@ object BankApp extends App with BankRoutes {
   implicit val materializer: ActorMaterializer = ActorMaterializer()
   implicit val executionContext = system.dispatcher
 
-  val hallRegistryActor: ActorRef = system.actorOf(BankService.props, "bankService")
-
   Http().bindAndHandle(route, "localhost", 8080)
-
   Await.result(system.whenTerminated, Duration.Inf)
 }

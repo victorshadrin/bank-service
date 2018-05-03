@@ -5,11 +5,9 @@ import akka.http.scaladsl.marshallers.sprayjson.SprayJsonSupport
 import akka.http.scaladsl.model.StatusCodes
 import akka.http.scaladsl.server.Directives._
 import akka.http.scaladsl.server.Route
-import ru.neoflex.microservices.bank.BankService.{AccountBalanceCommand, OpenAccountCommand}
 import spray.json.DefaultJsonProtocol
 import akka.pattern.ask
 import akka.util.Timeout
-import ru.neoflex.microservices.bank.AccountProtocol.GetBalanceResponse
 
 import scala.concurrent.ExecutionContext
 import scala.util.{Failure, Success}
@@ -19,8 +17,9 @@ object BankRoutes {
   case class AccountBalanceResponse(accountNumber: String, value: Double)
 }
 
-trait BankRoutes() (implicit system: ActorSystem) extends SprayJsonSupport with DefaultJsonProtocol {
+trait BankRoutes  extends SprayJsonSupport with DefaultJsonProtocol {
   import BankRoutes._
+  import BankService._
 
   implicit def executionContext: ExecutionContext
   implicit def system: ActorSystem
@@ -29,7 +28,7 @@ trait BankRoutes() (implicit system: ActorSystem) extends SprayJsonSupport with 
   implicit val openAccountRequestFormat = jsonFormat1(OpenAccountRequest)
   implicit val accountBalanceResponseFormat = jsonFormat2(AccountBalanceResponse)
 
-  val bankService: ActorRef = system.actorOf(BankService.props, "bankService")
+  lazy val bankService: ActorRef = system.actorOf(BankService.props, "bankService")
 
   def route: Route = {
     openAccountRequest ~
@@ -41,9 +40,11 @@ trait BankRoutes() (implicit system: ActorSystem) extends SprayJsonSupport with 
     path("openAccount") {
       post{
         entity(as[OpenAccountRequest]) { req =>
-          onComplete(bankService ? OpenAccountCommand(req.accountNumber)) {
-            case Success(response) =>
-              complete(StatusCodes.OK)
+          onSuccess(bankService ? OpenAccount(req.accountNumber)) {
+            case AccountExists =>
+              complete(StatusCodes.OK, "Account exists")
+            case AccountOpened(acc: String) =>
+              complete(StatusCodes.OK, "Account added")
           }
         }
       }
@@ -54,8 +55,8 @@ trait BankRoutes() (implicit system: ActorSystem) extends SprayJsonSupport with 
     get {
       pathPrefix("getBalance" / Segment) { accountNumber =>
         pathEndOrSingleSlash {
-          onComplete(bankService ? AccountBalanceCommand(accountNumber)) {
-            case Success(res: GetBalanceResponse) => {
+          onSuccess(bankService ? GetBalance(accountNumber)) {
+            case res: GetBalanceResponse => {
                 complete (AccountBalanceResponse(res.accounrName, res.balance))
             }
             case default =>
