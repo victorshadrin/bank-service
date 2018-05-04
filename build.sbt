@@ -16,6 +16,9 @@ libraryDependencies ++= Seq(
   "com.typesafe.akka" %% "akka-stream"          % akkaVersion,
   "com.typesafe.akka" %% "akka-persistence" % "2.5.12",
   "com.typesafe.akka" %% "akka-persistence-query" % "2.5.12",
+  "com.typesafe.akka" %% "akka-cluster-tools" % akkaVersion,
+  "com.typesafe.akka" %% "akka-cluster-sharding" % akkaVersion,
+
 
   "org.iq80.leveldb" % "leveldb" % leveldbVersion,
   "org.fusesource.leveldbjni" % "leveldbjni-all" % leveldbjniVersion,

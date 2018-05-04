@@ -10,7 +10,7 @@ object AccountProtocol {
 
   case class AccountException(message: String)  extends Exception
 
-  case class GetBalanceCommand(accountName: String)
-  case class GetBalanceResponse(accounrName: String, balance: Double)
+  case class GetBalanceCommand()
+  case class GetBalanceCommandResponse(balance: Double)
 
 }

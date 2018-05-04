@@ -29,7 +29,9 @@ class AccountAggregator extends PersistentActor with ActorLogging {
         log.info("After persist")
         sender ! "Command sent"
       }
-
+    case cmd: GetBalanceCommand =>
+      log.info("Getting balance")
+      sender ! GetBalanceResponse(0)
   }
 
   override def persistenceId: String = self.path.name

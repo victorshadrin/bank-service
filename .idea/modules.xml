@@ -4,7 +4,6 @@
     <modules>
       <module fileurl="file://$PROJECT_DIR$/.idea/modules/bank-service.iml" filepath="$PROJECT_DIR$/.idea/modules/bank-service.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/modules/bank-service-build.iml" filepath="$PROJECT_DIR$/.idea/modules/bank-service-build.iml" />
-      <module fileurl="file://$PROJECT_DIR$/../microservices/bank-service/.idea/modules/bank-service-build~1.iml" filepath="$PROJECT_DIR$/../microservices/bank-service/.idea/modules/bank-service-build~1.iml" />
     </modules>
   </component>
 </project>
