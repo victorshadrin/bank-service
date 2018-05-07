@@ -19,5 +19,6 @@ object BankApp extends App with BankRoutes {
   implicit val executionContext = system.dispatcher
 
   Http().bindAndHandle(route, "localhost", 8080)
+  println("Server started.")
   Await.result(system.whenTerminated, Duration.Inf)
 }

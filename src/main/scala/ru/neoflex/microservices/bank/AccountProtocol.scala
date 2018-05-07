@@ -1,16 +1,19 @@
 package ru.neoflex.microservices.bank
 
 object AccountProtocol {
-  case class OpenAccountCommand(accountName: String)
+  case class OpenAccountCommand()
+  case class CloseAccountCommand()
 
-  case class AccountExists(accountName: String)
-
-  case class CommandCompleted(accountName: String)
-  case class CommandFailed(accountName: String, reason: String)
-
-  case class AccountException(message: String)  extends Exception
+  case class CommandCompleted()
+  case class CommandFailed(reason: String)
 
   case class GetBalanceCommand()
   case class GetBalanceCommandResponse(balance: Double)
+
+  case class DepositCommand(amount: Double)
+  case class WithdrawCommand(amount: Double)
+  case class TransactionLockCommand(transactionId: Long, amount: Double)
+  case class TransactionCompleteCommand(transactionId: Long)
+  case class TransactionCancelCommand(transactionId: Long)
 
 }

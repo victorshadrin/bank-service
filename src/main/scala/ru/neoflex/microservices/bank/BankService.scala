@@ -6,10 +6,10 @@ import akka.persistence.query.PersistenceQuery
 import akka.persistence.query.journal.leveldb.scaladsl.LeveldbReadJournal
 import akka.stream.scaladsl.{Sink, Source}
 import akka.pattern.ask
-import AccountProtocol.{GetBalanceResponse, _}
 import akka.cluster.sharding.ClusterSharding
 import akka.stream.ActorMaterializer
 import akka.util.Timeout
+import ru.neoflex.microservices.bank.AccountProtocol.{GetBalanceCommand, GetBalanceCommandResponse, OpenAccountCommand}
 
 import scala.concurrent.Future
 import scala.concurrent.duration._
@@ -24,7 +24,10 @@ object BankService {
   case class AccountOpened(accountName: String)
 
   case class GetBalance(accountName: String)
+  case class GetBalanceResponse(value: Double)
+
   case class AccountNotFound(accountName: String)
+  case class BankServiceException(message: String)
 
 }
 
@@ -42,13 +45,10 @@ class BankService extends Actor with ActorLogging {
   def findAccount(accountNumber: String): Future[Option[ActorRef]] = {
       val actorRef = for {
         id <- readJournal.currentPersistenceIds().dropWhile(_ != accountNumber).take(1).runWith(Sink.headOption)
-        ref <- context.system.actorSelection("/user/" + id).resolveOne().recover {
+        if (id.isDefined)
+        ref <- context.system.actorSelection("/user/" + id.get).resolveOne().recover[ActorRef] {
             case e: ActorNotFound => {
-              if (id.isDefined) {
-                context.system.actorOf(AccountAggregator.props, id.get)
-              } else {
-                null
-              }
+              context.system.actorOf(AccountAggregator.props, id.get)
             }
           }
       } yield {
@@ -58,46 +58,40 @@ class BankService extends Actor with ActorLogging {
           Some(ref)
         }
       }
-      actorRef
+      actorRef.recover{
+        case e : Exception => {
+          None
+        }
+      }
   }
 
   override def receive: Receive = {
     case cmd: OpenAccount =>
       val origSender = sender()
-        readJournal.currentPersistenceIds().dropWhile(_ != cmd.accountName).take(1).runWith(Sink.headOption)
-        .onComplete{
-          case Success(opt) =>
-            if (opt.isEmpty) {
-              val account = context.system.actorOf(AccountAggregator.props, cmd.accountName)
-              log.info("path: " + account.path)
-              (account ? OpenAccountCommand(cmd.accountName)).onComplete( message => {
-                origSender ! AccountOpened(cmd.accountName)
-              })
-            } else {
-              opt.foreach(log.info)
-              origSender ! AccountExists
-            }
-          case Failure(e) => {
-            log.info("Exception")
-            origSender ! Failure(e)
+        findAccount(cmd.accountName).onComplete{
+          case Success(opt : Option[ActorRef]) if opt.isDefined =>
+            origSender ! AccountExists
+          case default => {
+            val account = context.system.actorOf(AccountAggregator.props, cmd.accountName)
+            (account ? OpenAccountCommand()).onComplete( message => {
+              origSender ! AccountOpened(cmd.accountName)
+            })
           }
         }
     case GetBalance(accName: String) => {
-      log.info("GetBalance: " + accName)
       val _sender = sender()
       findAccount(accName).onComplete{
-        case Success(opt : Option[ActorRef]) if opt.isDefined =>
+        case Failure(exception) =>
+          _sender ! BankServiceException(exception.getMessage)
+        case Success(None) =>
+          _sender ! AccountNotFound(accName)
+        case Success(opt : Option[ActorRef])  =>
           (opt.get ? GetBalanceCommand()).onComplete({
-            case Success(response: GetBalanceResponse) =>
-              _sender ! response.balance
+            case Success(response: GetBalanceCommandResponse) =>
+              _sender ! GetBalanceResponse(response.balance)
+            case Failure(exception) =>
+              _sender ! BankServiceException(exception.getMessage)
           })
-        case Failure(e) =>
-          log.info("Exception: " + e.getMessage)
-          _sender ! e.getMessage
-        case default => {
-          log.info("Actor not found: " + default)
-          _sender ! "Actor not found"
-        }
 
       }
     }

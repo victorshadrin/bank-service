@@ -8,13 +8,14 @@ import akka.http.scaladsl.server.Route
 import spray.json.DefaultJsonProtocol
 import akka.pattern.ask
 import akka.util.Timeout
+import ru.neoflex.microservices.bank.AccountProtocol.GetBalanceCommandResponse
 
 import scala.concurrent.ExecutionContext
 import scala.util.{Failure, Success}
 
 object BankRoutes {
   case class OpenAccountRequest(accountNumber: String)
-  case class AccountBalanceResponse(accountNumber: String, value: Double)
+  case class AccountBalanceResponse(value: Double)
 }
 
 trait BankRoutes  extends SprayJsonSupport with DefaultJsonProtocol {
@@ -26,7 +27,7 @@ trait BankRoutes  extends SprayJsonSupport with DefaultJsonProtocol {
   implicit def timeout: Timeout
 
   implicit val openAccountRequestFormat = jsonFormat1(OpenAccountRequest)
-  implicit val accountBalanceResponseFormat = jsonFormat2(AccountBalanceResponse)
+  implicit val accountBalanceResponseFormat = jsonFormat1(AccountBalanceResponse)
 
   lazy val bankService: ActorRef = system.actorOf(BankService.props, "bankService")
 
@@ -57,10 +58,10 @@ trait BankRoutes  extends SprayJsonSupport with DefaultJsonProtocol {
         pathEndOrSingleSlash {
           onSuccess(bankService ? GetBalance(accountNumber)) {
             case res: GetBalanceResponse => {
-                complete (AccountBalanceResponse(res.accounrName, res.balance))
+                complete (AccountBalanceResponse(res.value))
             }
-            case default =>
-              complete(StatusCodes.InternalServerError)
+            case AccountNotFound(number) =>
+              complete(StatusCodes.InternalServerError, "Account not found")
           }
         }
       }
