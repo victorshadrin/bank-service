@@ -24,7 +24,8 @@ class AccountAggregator extends PersistentActor with ActorLogging {
   import AccountAggregator._
   import AccountProtocol._
 
-  case class AccountState(var amount: Double, var openDate: DateTime, var closeDate: DateTime, var lastChangeDate: DateTime, locked: mutable.Map[Long, Double]) {
+  case class AccountState(amount: Double, openDate: DateTime, closeDate: DateTime, lastChangeDate: DateTime,
+                          locked: Map[Long, Double]) {
     def isClosed(): Boolean = closeDate != null
     def isOpened(): Boolean = openDate != null
     def freeAmount(): Double = amount - locked.foldLeft(0.0){
@@ -33,7 +34,7 @@ class AccountAggregator extends PersistentActor with ActorLogging {
     def knownTransaction(transactionId: Long): Boolean = locked.keys.find(_ == transactionId).isDefined
   }
 
-  val accountState: AccountState = AccountState(0, null, null, null, mutable.Map[Long, Double]())
+  var accountState: AccountState = AccountState(0, null, null, null, Map[Long, Double]())
 
   override def receiveRecover: Receive = {
     case event: AccountEvent if accountState.closeDate == null => {
@@ -43,33 +44,26 @@ class AccountAggregator extends PersistentActor with ActorLogging {
 
   def updateState(event: AccountEvent): Unit = event match {
     case event: OpenAccountEvent if accountState.closeDate == null => {
-      accountState.openDate = event.openDate
-      accountState.lastChangeDate = event.openDate
+      accountState = accountState.copy(openDate = event.openDate,lastChangeDate = event.openDate)
     }
     case event: CloseAccountEvent if accountState.closeDate == null => {
-      accountState.closeDate = event.closeDate
-      accountState.lastChangeDate = event.closeDate
+      accountState = accountState.copy(closeDate = event.closeDate, lastChangeDate = event.closeDate)
     }
     case event: DepositEvent if accountState.closeDate == null => {
-      accountState.amount = accountState.amount + event.amount
-      accountState.lastChangeDate = event.changeDate
+      accountState = accountState.copy(amount = accountState.amount + event.amount, lastChangeDate = event.changeDate)
     }
     case event: WithdrawEvent if accountState.closeDate == null => {
-      accountState.amount = accountState.amount - event.amount
-      accountState.lastChangeDate = event.changeDate
+      accountState = accountState.copy(amount = accountState.amount - event.amount, lastChangeDate = event.changeDate)
     }
     case event: TransactionLockEvent if accountState.closeDate == null => {
-      accountState.locked += ((event.transactionId, event.amount))
-      accountState.lastChangeDate = event.changeDate
+      accountState = accountState.copy(locked = accountState.locked + ((event.transactionId, event.amount)), lastChangeDate = event.changeDate)
     }
     case event: TransactionCompleteEvent if accountState.closeDate == null => {
-      accountState.amount = accountState.amount - accountState.locked.get(event.transactionId).get
-      accountState.locked -= (event.transactionId)
-      accountState.lastChangeDate = event.changeDate
+      accountState = accountState.copy(amount = accountState.amount - accountState.locked.get(event.transactionId).get,
+        locked = accountState.locked - (event.transactionId), lastChangeDate = event.changeDate)
     }
     case event: TransactionCancelEvent if accountState.closeDate == null => {
-      accountState.locked -= (event.transactionId)
-      accountState.lastChangeDate = event.changeDate
+      accountState = accountState.copy(locked = accountState.locked - (event.transactionId), lastChangeDate = event.changeDate)
     }
   }
 
