@@ -2,33 +2,28 @@ package ru.neoflex.microservices.bank
 
 import akka.actor.{ActorLogging, Props}
 import akka.http.scaladsl.model.DateTime
-import akka.persistence.PersistentActor
+import akka.persistence.{AtLeastOnceDelivery, PersistentActor}
 import akka.pattern.ask
 
 import scala.collection.mutable
 
 object AccountAggregator {
   def props: Props = Props[AccountAggregator]
-  trait AccountEvent
-  case class OpenAccountEvent(openDate: DateTime) extends AccountEvent
-  case class CloseAccountEvent(closeDate: DateTime) extends AccountEvent
-  case class DepositEvent(changeDate: DateTime, amount: Double) extends AccountEvent
-  case class WithdrawEvent(changeDate: DateTime, amount: Double) extends AccountEvent
-  case class TransactionLockEvent(changeDate: DateTime, amount: Double, transactionId: Long) extends AccountEvent
-  case class TransactionCompleteEvent(changeDate: DateTime, transactionId: Long) extends AccountEvent
-  case class TransactionCancelEvent(changeDate: DateTime, transactionId: Long) extends AccountEvent
 }
 
-class AccountAggregator extends PersistentActor with ActorLogging {
+class AccountAggregator extends PersistentActor with AtLeastOnceDelivery with ActorLogging {
 
-  import AccountAggregator._
-  import AccountProtocol._
+  import AccountEvents._
+  import AccountCommands._
 
   case class AccountState(amount: Double, openDate: DateTime, closeDate: DateTime, lastChangeDate: DateTime,
                           locked: Map[Long, Double]) {
     def isClosed(): Boolean = closeDate != null
     def isOpened(): Boolean = openDate != null
     def freeAmount(): Double = amount - locked.foldLeft(0.0){
+      case (total,(id, value)) => total + value
+    }
+    def lockedAmount(transactionId: Long): Double = locked.filter(_._1 == transactionId).foldLeft(0.0){
       case (total,(id, value)) => total + value
     }
     def knownTransaction(transactionId: Long): Boolean = locked.keys.find(_ == transactionId).isDefined
@@ -72,28 +67,29 @@ class AccountAggregator extends PersistentActor with ActorLogging {
       if (accountState.isOpened())
         sender ! CommandFailed("Account already opened")
       else
-        persist(OpenAccountEvent(DateTime.now)) { event =>
+        persist(OpenAccountEvent(self.path.name, DateTime.now)) { event =>
           updateState(event)
+          context.system.eventStream.publish(event)
           sender ! CommandCompleted()
         }
     case cmd: CloseAccountCommand =>
       if (accountState.isClosed())
         sender ! CommandFailed("Account already closed")
       else
-        persist(CloseAccountEvent(DateTime.now)) { event =>
+        persist(CloseAccountEvent(self.path.name, DateTime.now)) { event =>
           updateState(event)
+          context.system.eventStream.publish(event)
           sender ! CommandCompleted()
         }
-    case cmd: GetBalanceCommand =>
-      sender ! GetBalanceCommandResponse(accountState.amount)
     case cmd: DepositCommand =>
       if (accountState.isClosed())
         sender ! CommandFailed("Account already closed")
       else if (cmd.amount <= 0)
         sender ! CommandFailed("Wrong amount")
       else
-        persist(DepositEvent(DateTime.now, cmd.amount)) { event =>
+        persist(DepositEvent(self.path.name, DateTime.now, cmd.amount)) { event =>
           updateState(event)
+          context.system.eventStream.publish(event)
           sender ! CommandCompleted()
         }
     case cmd: WithdrawCommand =>
@@ -102,8 +98,9 @@ class AccountAggregator extends PersistentActor with ActorLogging {
       else if (cmd.amount > accountState.freeAmount() )
         sender ! CommandFailed("Wrong amount")
       else
-        persist(WithdrawEvent(DateTime.now, cmd.amount)) { event =>
+        persist(WithdrawEvent(self.path.name, DateTime.now, cmd.amount)) { event =>
           updateState(event)
+          context.system.eventStream.publish(event)
           sender ! CommandCompleted()
       }
     case cmd: TransactionLockCommand =>
@@ -114,7 +111,7 @@ class AccountAggregator extends PersistentActor with ActorLogging {
       else if (accountState.knownTransaction(cmd.transactionId))
         sender ! CommandFailed("Already locked")
       else
-        persist(TransactionLockEvent(DateTime.now, cmd.amount, cmd.transactionId)) { event =>
+        persist(TransactionLockEvent(self.path.name, DateTime.now, cmd.amount, cmd.transactionId)) { event =>
           updateState(event)
           sender ! CommandCompleted()
         }
@@ -124,8 +121,10 @@ class AccountAggregator extends PersistentActor with ActorLogging {
       else if (! accountState.knownTransaction(cmd.transactionId))
         sender ! CommandFailed("Unknown transaction")
       else
-        persist(TransactionCompleteEvent(DateTime.now, cmd.transactionId)) { event =>
+        persist(TransactionCompleteEvent(self.path.name, DateTime.now, cmd.transactionId)) { event =>
           updateState(event)
+          context.system.eventStream.publish(event)
+          context.system.eventStream.publish(WithdrawEvent(self.path.name, DateTime.now, accountState.lockedAmount(cmd.transactionId)))
           sender ! CommandCompleted()
         }
     case cmd: TransactionCancelCommand =>
@@ -134,11 +133,11 @@ class AccountAggregator extends PersistentActor with ActorLogging {
       else if (! accountState.knownTransaction(cmd.transactionId))
         sender ! CommandFailed("Unknown transaction")
       else
-        persist(TransactionCancelEvent(DateTime.now, cmd.transactionId)) { event =>
+        persist(TransactionCancelEvent(self.path.name, DateTime.now, cmd.transactionId)) { event =>
           updateState(event)
           sender ! CommandCompleted()
         }
   }
 
-  override def persistenceId: String = self.path.name
+  override def persistenceId: String = "Account-" + self.path.name
 }

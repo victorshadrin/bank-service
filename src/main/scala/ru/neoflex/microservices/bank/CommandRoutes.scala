@@ -4,37 +4,35 @@ import akka.actor.{ActorRef, ActorSystem}
 import akka.http.scaladsl.marshallers.sprayjson.SprayJsonSupport
 import akka.http.scaladsl.model.{HttpResponse, StatusCodes}
 import akka.http.scaladsl.server.Directives._
-import akka.http.scaladsl.server.{ExceptionHandler, Route}
+import akka.http.scaladsl.server.{ExceptionHandler, Route, StandardRoute}
 import spray.json.DefaultJsonProtocol
 import akka.pattern.ask
 import akka.persistence.query.PersistenceQuery
 import akka.persistence.query.journal.leveldb.scaladsl.LeveldbReadJournal
-import akka.persistence.query.scaladsl.ReadJournal
 import akka.stream.ActorMaterializer
-import akka.stream.scaladsl.Sink
 import akka.util.Timeout
-import ru.neoflex.microservices.bank.AccountProtocol.{DepositCommand, GetBalanceCommand, GetBalanceCommandResponse, WithdrawCommand}
 
 import scala.concurrent.{ExecutionContext, Future}
 import akka.stream.scaladsl.Sink
 
-object BankRoutes {
+object CommandRoutes {
 
   case class OpenAccountRequest(accountNumber: String)
   case class CloseAccountRequest(accountNumber: String)
   case class DepositRequest(accountNumber: String, amount: Double)
-
+  case class TransactionLockRequest(accountNumber: String, transactionId: Long, amount: Double)
+  case class TransactionCancelRequest(accountNumber: String, transactionId: Long)
+  case class TransactionCompleteRequest(accountNumber: String, transactionId: Long)
   case class WithdrawRequest(accountNumber: String, amount: Double)
-
   case class AccountBalanceResponse(value: Double)
 
 }
 
-trait BankRoutes extends SprayJsonSupport with DefaultJsonProtocol with AccountHelper {
+trait CommandRoutes extends SprayJsonSupport with DefaultJsonProtocol with AccountHelper {
 
-  import BankRoutes._
+  import CommandRoutes._
   import StatusCodes._
-  import AccountProtocol._
+  import AccountCommands._
 
   val exceptionHandler = ExceptionHandler {
     case e: NoSuchElementException => {
@@ -52,15 +50,18 @@ trait BankRoutes extends SprayJsonSupport with DefaultJsonProtocol with AccountH
   implicit val depositRequestFormat = jsonFormat2(DepositRequest)
   implicit val withdrawRequestFormat = jsonFormat2(WithdrawRequest)
   implicit val accountBalanceResponseFormat = jsonFormat1(AccountBalanceResponse)
+  implicit val transactionLockRequestFormat = jsonFormat3(TransactionLockRequest)
+  implicit val transactionCancelRequestFormat = jsonFormat2(TransactionCancelRequest)
+  implicit val transactionCompleteRequestFormat = jsonFormat2(TransactionCompleteRequest)
+
 
   implicit lazy val readJournal: LeveldbReadJournal = PersistenceQuery(system).readJournalFor[LeveldbReadJournal](
     LeveldbReadJournal.Identifier)
 
-  def route: Route = {
+  def commandRoute: Route = {
     handleExceptions(exceptionHandler) {
       openAccountRequest ~
         closeAccountRequest ~
-        getBalanceRequest ~
         withdrawRequest ~
         depositRequest
     }
@@ -70,7 +71,7 @@ trait BankRoutes extends SprayJsonSupport with DefaultJsonProtocol with AccountH
     path("open") {
       post {
         entity(as[OpenAccountRequest]) { req =>
-          val futureOption: Future[Option[String]] = readJournal.currentPersistenceIds().dropWhile(_ != req.accountNumber).take(1).runWith(Sink.headOption)
+          val futureOption: Future[Option[String]] = readJournal.currentPersistenceIds().dropWhile(_ != "Account-" + req.accountNumber).take(1).runWith(Sink.headOption)
           onSuccess(futureOption) {
             case Some(str) =>
               complete(OK, "Account exists")
@@ -135,18 +136,21 @@ trait BankRoutes extends SprayJsonSupport with DefaultJsonProtocol with AccountH
     }
   }
 
-  def getBalanceRequest: Route = {
-    get {
-      pathPrefix("getBalance" / Segment) { accountNumber =>
-        pathEndOrSingleSlash {
-          onSuccess(getAccount(accountNumber)) { ref =>
-            onSuccess(ref ? GetBalanceCommand()) {
-              case resp: GetBalanceCommandResponse =>
-                complete(AccountBalanceResponse(resp.balance))
+  def transactionLockRequest: Route = {
+    path("lock") {
+      post {
+        entity(as[TransactionLockRequest]) { req =>
+          onSuccess(getAccount(req.accountNumber)) { ref =>
+            onSuccess(ref ? TransactionLockCommand(req.transactionId, req.amount)) {
+              case res: CommandCompleted =>
+                complete(StatusCodes.OK)
+              case res: CommandFailed =>
+                complete(InternalServerError, res.reason)
             }
           }
         }
       }
     }
   }
+
 }

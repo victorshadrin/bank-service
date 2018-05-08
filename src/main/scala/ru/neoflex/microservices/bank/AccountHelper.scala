@@ -12,11 +12,11 @@ trait AccountHelper {
                                         materializer: ActorMaterializer, executionContext: ExecutionContext,
                                         timeout: Timeout): Future[ActorRef] = {
     val ref = for {
-      id <- readJournal.currentPersistenceIds().dropWhile(_ != accountNumber).take(1).runWith(Sink.headOption)
+      id <- readJournal.currentPersistenceIds().dropWhile(_ != "Account-" + accountNumber).take(1).runWith(Sink.headOption)
       if (id.isDefined)
       ref <- system.actorSelection("/user/" + id.get).resolveOne().recover[ActorRef] {
         case e: ActorNotFound => {
-          system.actorOf(AccountAggregator.props, id.get)
+          system.actorOf(AccountAggregator.props, accountNumber)
         }
       }
     } yield {
